@@ -3,7 +3,7 @@
 
 Defaults:
   * Controller clock: current America/Los_Angeles time (PST/PDT as applicable)
-  * Exercise: Tuesday at 09:00, weekly, 30 minutes
+  * Exercise: Tuesday at 09:05, weekly, 25 minutes
   * Modbus RTU: unit 0x9D, 9600 8N1
 
 The program is dry-run by default. Pass --apply to perform writes.
@@ -184,6 +184,9 @@ def main() -> int:
     parser.add_argument("--timezone", default="America/Los_Angeles", help="IANA timezone; default observes PST/PDT")
     parser.add_argument("--apply", action="store_true", help="Actually write settings; otherwise perform a dry run")
     parser.add_argument("--quiet-test", action="store_true", help="Enable quiet-test mode; default is off")
+    parser.add_argument("--exercise-hour", type=int, choices=range(24), default=9, metavar="0-23")
+    parser.add_argument("--exercise-minute", type=int, choices=range(60), default=5, metavar="0-59")
+    parser.add_argument("--duration", type=int, choices=range(1, 256), default=25, metavar="1-255")
     parser.add_argument("--skip-duration", action="store_true", help="Do not write 0x023E if this model rejects duration")
     parser.add_argument("--service", default="olmaster", help="Service to stop during writes; default: olmaster")
     parser.add_argument("--no-service-control", action="store_true", help="Do not stop or start a service")
@@ -199,13 +202,16 @@ def main() -> int:
     exercise_values = {
         REG_EX_FREQUENCY: 0x0000,          # weekly
         REG_EX_DAY: 0x0002,                # Sunday=0, Monday=1, Tuesday=2
-        REG_EX_TIME: packed(9, 0),          # 09:00
+        REG_EX_TIME: packed(args.exercise_hour, args.exercise_minute),
         REG_EX_QUIET: int(args.quiet_test),
-        REG_EX_DURATION: 30,
+        REG_EX_DURATION: args.duration,
     }
 
     print(f"Pacific controller time to set: {now.isoformat()} ({now.tzname()})")
-    print("Exercise to set: weekly, Tuesday 09:00, 30 minutes, " + ("quiet test" if args.quiet_test else "normal exercise"))
+    print(
+        f"Exercise to set: weekly, Tuesday {args.exercise_hour:02d}:{args.exercise_minute:02d}, "
+        f"{args.duration} minutes, " + ("quiet test" if args.quiet_test else "normal exercise")
+    )
     print("Clock registers:", " ".join(f"{v:04X}" for v in clock_values))
     print("Exercise registers:", " ".join(f"{a:04X}={v:04X}" for a, v in exercise_values.items()))
 
@@ -254,8 +260,8 @@ def main() -> int:
         ]
         if schedule != expected_schedule:
             raise ControllerError(f"Exercise verification failed: expected {expected_schedule}, received {schedule}")
-        if not args.skip_duration and duration != 30:
-            raise ControllerError(f"Duration verification failed: expected 30, received {duration}")
+        if not args.skip_duration and duration != args.duration:
+            raise ControllerError(f"Duration verification failed: expected {args.duration}, received {duration}")
         print("All requested settings verified successfully.")
     except (ControllerError, ModbusException, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

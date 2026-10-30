@@ -1,6 +1,6 @@
 # Generac Evolution Time and Exercise Setter
 
-Sets a Generac Evolution controller to the current Pacific time and configures a weekly Tuesday 9:00 AM exercise cycle lasting 30 minutes.
+Sets a Generac Evolution controller to the current Pacific time and configures a weekly Tuesday 9:05 AM exercise cycle lasting 25 minutes.
 
 The utility communicates over Modbus RTU using PyModbus. By default it uses:
 
@@ -8,7 +8,7 @@ The utility communicates over Modbus RTU using PyModbus. By default it uses:
 - Unit address: `0x9D`
 - Serial settings: 9600 baud, 8N1
 - Time zone: `America/Los_Angeles` (PST/PDT automatically)
-- Exercise: Tuesday at 9:00 AM for 30 minutes
+- Exercise: Tuesday at 9:05 AM for 25 minutes
 - Service control: stops `olmaster` before writing and starts it again afterward
 
 ## Requirements
