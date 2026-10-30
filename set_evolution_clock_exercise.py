@@ -65,15 +65,20 @@ class ModbusRTU:
     timeout: float = 1.5
 
     def __post_init__(self) -> None:
-        self.client = ModbusSerialClient(
-            port=self.port,
-            baudrate=self.baud,
-            bytesize=8,
-            parity="N",
-            stopbits=1,
-            timeout=self.timeout,
-            retries=2,
-        )
+        client_parameters = {
+            "port": self.port,
+            "baudrate": self.baud,
+            "bytesize": 8,
+            "parity": "N",
+            "stopbits": 1,
+            "timeout": self.timeout,
+            "retries": 2,
+        }
+        # PyModbus 2.x defaults to ASCII framing unless RTU is requested.
+        # PyModbus 3.x removed this keyword and uses RTU for the serial client.
+        if "method" in inspect.signature(ModbusSerialClient).parameters:
+            client_parameters["method"] = "rtu"
+        self.client = ModbusSerialClient(**client_parameters)
         if not self.client.connect():
             raise ControllerError(f"Could not open/connect to {self.port}")
 
