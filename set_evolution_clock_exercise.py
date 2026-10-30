@@ -162,6 +162,18 @@ def decode_clock(values: list[int]) -> str:
     return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d} ({weekday_text})"
 
 
+def clock_datetime(values: list[int], timezone: dt.tzinfo) -> dt.datetime:
+    clock, date, weekday_year = values
+    return dt.datetime(
+        2000 + (weekday_year & 0xFF),
+        date >> 8,
+        date & 0xFF,
+        clock >> 8,
+        clock & 0xFF,
+        tzinfo=timezone,
+    )
+
+
 def control_service(service: str, action: str) -> None:
     """Run systemctl without a shell and fail if the requested action fails."""
     result = subprocess.run(
@@ -183,6 +195,8 @@ def main() -> int:
     parser.add_argument("--unit", type=lambda x: int(x, 0), default=UNIT, help="Modbus unit, default 0x9D")
     parser.add_argument("--timezone", default="America/Los_Angeles", help="IANA timezone; default observes PST/PDT")
     parser.add_argument("--apply", action="store_true", help="Actually write settings; otherwise perform a dry run")
+    parser.add_argument("--clock-only", action="store_true", help="Sync only the clock; do not alter the exercise schedule")
+    parser.add_argument("--max-drift-minutes", type=float, default=5.0, help="With --clock-only, write only when drift is greater than this value; default: 5")
     parser.add_argument("--quiet-test", action="store_true", help="Enable quiet-test mode; default is off")
     parser.add_argument("--exercise-hour", type=int, choices=range(24), default=9, metavar="0-23")
     parser.add_argument("--exercise-minute", type=int, choices=range(60), default=5, metavar="0-59")
@@ -191,6 +205,9 @@ def main() -> int:
     parser.add_argument("--service", default="olmaster", help="Service to stop during writes; default: olmaster")
     parser.add_argument("--no-service-control", action="store_true", help="Do not stop or start a service")
     args = parser.parse_args()
+
+    if args.max_drift_minutes < 0:
+        parser.error("--max-drift-minutes cannot be negative")
 
     try:
         now = current_time_in_zone(args.timezone)
@@ -208,12 +225,15 @@ def main() -> int:
     }
 
     print(f"Pacific controller time to set: {now.isoformat()} ({now.tzname()})")
-    print(
-        f"Exercise to set: weekly, Tuesday {args.exercise_hour:02d}:{args.exercise_minute:02d}, "
-        f"{args.duration} minutes, " + ("quiet test" if args.quiet_test else "normal exercise")
-    )
     print("Clock registers:", " ".join(f"{v:04X}" for v in clock_values))
-    print("Exercise registers:", " ".join(f"{a:04X}={v:04X}" for a, v in exercise_values.items()))
+    if args.clock_only:
+        print(f"Clock-only mode: write only when drift is greater than {args.max_drift_minutes:g} minutes")
+    else:
+        print(
+            f"Exercise to set: weekly, Tuesday {args.exercise_hour:02d}:{args.exercise_minute:02d}, "
+            f"{args.duration} minutes, " + ("quiet test" if args.quiet_test else "normal exercise")
+        )
+        print("Exercise registers:", " ".join(f"{a:04X}={v:04X}" for a, v in exercise_values.items()))
 
     if not args.apply:
         print("Dry run only. Re-run with --apply to write these values.")
@@ -232,36 +252,47 @@ def main() -> int:
         before = bus.read_holding(REG_CLOCK, 3)
         print("Controller time before:", decode_clock(before))
 
-        # Match the established controller write behavior: all three clock registers in one 0x10 request.
-        bus.write_holding(REG_CLOCK, clock_values)
+        controller_before = clock_datetime(before, now.tzinfo)
+        drift_minutes = abs((controller_before - now).total_seconds()) / 60.0
+        print(f"Clock drift: {drift_minutes:.1f} minute(s)")
 
-        # Match the established exercise write behavior: frequency, day, and time are separate writes.
-        bus.write_holding(REG_EX_FREQUENCY, [exercise_values[REG_EX_FREQUENCY]])
-        bus.write_holding(REG_EX_DAY, [exercise_values[REG_EX_DAY]])
-        bus.write_holding(REG_EX_TIME, [exercise_values[REG_EX_TIME]])
-        bus.write_holding(REG_EX_QUIET, [exercise_values[REG_EX_QUIET]])
-        if not args.skip_duration:
-            bus.write_holding(REG_EX_DURATION, [exercise_values[REG_EX_DURATION]])
+        if args.clock_only and drift_minutes <= args.max_drift_minutes:
+            print("Clock is within tolerance; no write needed.")
+        else:
+            # Match the established controller write behavior: all three clock registers in one 0x10 request.
+            bus.write_holding(REG_CLOCK, clock_values)
+            after = bus.read_holding(REG_CLOCK, 3)
+            print("Controller time after: ", decode_clock(after))
+            after_drift = abs((clock_datetime(after, now.tzinfo) - now).total_seconds()) / 60.0
+            if after_drift > 1.0:
+                raise ControllerError(f"Clock verification failed: still {after_drift:.1f} minutes off")
 
-        after = bus.read_holding(REG_CLOCK, 3)
-        schedule = bus.read_holding(REG_EX_TIME, 4)
-        print("Controller time after: ", decode_clock(after))
-        print(
-            "Exercise readback 002C..002F:",
-            " ".join(f"{REG_EX_TIME + i:04X}={value:04X}" for i, value in enumerate(schedule)),
-        )
-        if not args.skip_duration:
-            duration = bus.read_holding(REG_EX_DURATION, 1)[0]
-            print(f"Exercise duration 023E={duration} minute(s)")
+        if not args.clock_only:
+            # Match the established exercise write behavior: frequency, day, and time are separate writes.
+            bus.write_holding(REG_EX_FREQUENCY, [exercise_values[REG_EX_FREQUENCY]])
+            bus.write_holding(REG_EX_DAY, [exercise_values[REG_EX_DAY]])
+            bus.write_holding(REG_EX_TIME, [exercise_values[REG_EX_TIME]])
+            bus.write_holding(REG_EX_QUIET, [exercise_values[REG_EX_QUIET]])
+            if not args.skip_duration:
+                bus.write_holding(REG_EX_DURATION, [exercise_values[REG_EX_DURATION]])
 
-        expected_schedule = [
-            exercise_values[REG_EX_TIME], exercise_values[REG_EX_FREQUENCY],
-            exercise_values[REG_EX_DAY], exercise_values[REG_EX_QUIET],
-        ]
-        if schedule != expected_schedule:
-            raise ControllerError(f"Exercise verification failed: expected {expected_schedule}, received {schedule}")
-        if not args.skip_duration and duration != args.duration:
-            raise ControllerError(f"Duration verification failed: expected {args.duration}, received {duration}")
+            schedule = bus.read_holding(REG_EX_TIME, 4)
+            print(
+                "Exercise readback 002C..002F:",
+                " ".join(f"{REG_EX_TIME + i:04X}={value:04X}" for i, value in enumerate(schedule)),
+            )
+            if not args.skip_duration:
+                duration = bus.read_holding(REG_EX_DURATION, 1)[0]
+                print(f"Exercise duration 023E={duration} minute(s)")
+
+            expected_schedule = [
+                exercise_values[REG_EX_TIME], exercise_values[REG_EX_FREQUENCY],
+                exercise_values[REG_EX_DAY], exercise_values[REG_EX_QUIET],
+            ]
+            if schedule != expected_schedule:
+                raise ControllerError(f"Exercise verification failed: expected {expected_schedule}, received {schedule}")
+            if not args.skip_duration and duration != args.duration:
+                raise ControllerError(f"Duration verification failed: expected {args.duration}, received {duration}")
         print("All requested settings verified successfully.")
     except (ControllerError, ModbusException, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

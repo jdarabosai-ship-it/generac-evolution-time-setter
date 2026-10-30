@@ -1,0 +1,10 @@
+[Unit]
+Description=Check and synchronize Generac Evolution controller clock
+After=local-fs.target
+ConditionPathExists=/dev/USB232
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/sbin/set_evolution_clock_exercise.py --apply --clock-only --max-drift-minutes 5
+

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Generac Evolution controller clock check
+
+[Timer]
+OnCalendar=*-*-* 12:00:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=evolution-clock-sync.service
+
+[Install]
+WantedBy=timers.target
