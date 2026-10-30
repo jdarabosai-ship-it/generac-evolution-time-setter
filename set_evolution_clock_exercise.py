@@ -7,7 +7,7 @@ Defaults:
   * Modbus RTU: unit 0x9D, 9600 8N1
 
 The program is dry-run by default. Pass --apply to perform writes.
-Requires Python 3.9+ and pymodbus.
+Requires Python 3.7+ and pymodbus.
 """
 
 from __future__ import annotations
@@ -15,11 +15,11 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import inspect
+import os
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
     from pymodbus.client import ModbusSerialClient
@@ -103,6 +103,30 @@ def packed(high: int, low: int) -> int:
     return (high << 8) | low
 
 
+def current_time_in_zone(timezone: str) -> dt.datetime:
+    """Return an aware datetime using the host's standard Linux tzdata.
+
+    This deliberately avoids Python's zoneinfo module so the utility works on
+    Python 3.7 and 3.8 systems without installing the backports.zoneinfo package.
+    """
+    zone_path = os.path.realpath(os.path.join("/usr/share/zoneinfo", timezone))
+    zone_root = os.path.realpath("/usr/share/zoneinfo") + os.sep
+    if not zone_path.startswith(zone_root) or not os.path.isfile(zone_path):
+        raise ValueError(f"Unknown timezone {timezone!r}. Install the system tzdata package.")
+
+    previous_tz = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = timezone
+        time.tzset()
+        return dt.datetime.now().astimezone().replace(second=0, microsecond=0)
+    finally:
+        if previous_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous_tz
+        time.tzset()
+
+
 def decode_clock(values: list[int]) -> str:
     clock, date, weekday_year = values
     hour, minute = clock >> 8, clock & 0xFF
@@ -141,12 +165,10 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        zone = ZoneInfo(args.timezone)
-    except ZoneInfoNotFoundError:
-        print(f"Unknown timezone {args.timezone!r}. Install the system tzdata package.", file=sys.stderr)
+        now = current_time_in_zone(args.timezone)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
-
-    now = dt.datetime.now(zone).replace(second=0, microsecond=0)
     # The known Evolution write path uses zero for the weekday byte and lets the controller derive it.
     clock_values = [packed(now.hour, now.minute), packed(now.month, now.day), packed(0, now.year - 2000)]
     exercise_values = {

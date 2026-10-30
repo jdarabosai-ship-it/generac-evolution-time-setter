@@ -14,7 +14,8 @@ The utility communicates over Modbus RTU using PyModbus. By default it uses:
 ## Requirements
 
 - Linux
-- Python 3.9+
+- Python 3.7+
+- Linux system timezone data (`tzdata`; normally already installed)
 - PyModbus
 - Permission to use the serial device and control `olmaster`
 
