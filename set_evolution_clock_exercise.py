@@ -22,11 +22,26 @@ import time
 from dataclasses import dataclass
 
 try:
+    # PyModbus 3.x
     from pymodbus.client import ModbusSerialClient
-    from pymodbus.exceptions import ModbusException
 except ImportError:
-    print("Missing dependency: install pymodbus with: python3 -m pip install pymodbus", file=sys.stderr)
-    raise SystemExit(2)
+    try:
+        # PyModbus 2.x, commonly shipped on older embedded Linux images
+        from pymodbus.client.sync import ModbusSerialClient
+    except ImportError as exc:
+        print(
+            "Could not import PyModbus in this Python interpreter "
+            f"({sys.executable}): {exc}",
+            file=sys.stderr,
+        )
+        print(
+            "olmaster may use a different interpreter or virtual environment. "
+            "Check it with: systemctl cat olmaster",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+from pymodbus.exceptions import ModbusException
 
 
 UNIT = 0x9D
@@ -62,9 +77,14 @@ class ModbusRTU:
         if not self.client.connect():
             raise ControllerError(f"Could not open/connect to {self.port}")
 
-        # PyModbus <=3.10 calls this parameter 'slave'; >=3.11 calls it 'device_id'.
+        # The unit keyword changed across PyModbus releases.
         parameters = inspect.signature(self.client.read_holding_registers).parameters
-        self.unit_parameter = "device_id" if "device_id" in parameters else "slave"
+        if "device_id" in parameters:
+            self.unit_parameter = "device_id"
+        elif "slave" in parameters:
+            self.unit_parameter = "slave"
+        else:
+            self.unit_parameter = "unit"
 
     def close(self) -> None:
         self.client.close()
