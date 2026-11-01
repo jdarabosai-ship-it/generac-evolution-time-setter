@@ -16,6 +16,7 @@ import argparse
 import datetime as dt
 import inspect
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -55,6 +56,11 @@ REG_EX_DURATION = 0x023E
 
 class ControllerError(RuntimeError):
     pass
+
+
+def handle_termination(_signum, _frame) -> None:
+    """Route SIGTERM through the normal cleanup path."""
+    raise KeyboardInterrupt
 
 
 @dataclass
@@ -205,6 +211,10 @@ def main() -> int:
     parser.add_argument("--service", default="olmaster", help="Service to stop during writes; default: olmaster")
     parser.add_argument("--no-service-control", action="store_true", help="Do not stop or start a service")
     args = parser.parse_args()
+
+    # Let systemd and fleet-command timeout SIGTERM follow the same cleanup path
+    # as Ctrl-C, ensuring olmaster is restarted from the finally block.
+    signal.signal(signal.SIGTERM, handle_termination)
 
     if args.max_drift_minutes < 0:
         parser.error("--max-drift-minutes cannot be negative")
