@@ -52,6 +52,7 @@ REG_EX_FREQUENCY = 0x002D
 REG_EX_DAY = 0x002E
 REG_EX_QUIET = 0x002F
 REG_EX_DURATION = 0x023E
+SERIAL_PORT_CANDIDATES = ("/dev/USB232", "/dev/ttySTM1", "/dev/ttyUSB0", "/dev/serial0")
 
 
 class ControllerError(RuntimeError):
@@ -61,6 +62,17 @@ class ControllerError(RuntimeError):
 def handle_termination(_signum, _frame) -> None:
     """Route SIGTERM through the normal cleanup path."""
     raise KeyboardInterrupt
+
+
+def resolve_serial_port(requested_port: str) -> str:
+    if requested_port != "auto":
+        return requested_port
+    for candidate in SERIAL_PORT_CANDIDATES:
+        if os.path.exists(candidate):
+            return candidate
+    raise ControllerError(
+        "No supported serial device found; checked " + ", ".join(SERIAL_PORT_CANDIDATES)
+    )
 
 
 @dataclass
@@ -196,7 +208,11 @@ def control_service(service: str, action: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", default="/dev/USB232", help="Serial device; default: /dev/USB232")
+    parser.add_argument(
+        "--port",
+        default="auto",
+        help="Serial device; default auto-detects /dev/USB232 or OL V4 /dev/ttySTM1",
+    )
     parser.add_argument("--baud", type=int, default=9600)
     parser.add_argument("--unit", type=lambda x: int(x, 0), default=UNIT, help="Modbus unit, default 0x9D")
     parser.add_argument("--timezone", default="America/Los_Angeles", help="IANA timezone; default observes PST/PDT")
@@ -221,7 +237,8 @@ def main() -> int:
 
     try:
         now = current_time_in_zone(args.timezone)
-    except ValueError as exc:
+        serial_port = resolve_serial_port(args.port)
+    except (ControllerError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     # The known Evolution write path uses zero for the weekday byte and lets the controller derive it.
@@ -235,6 +252,7 @@ def main() -> int:
     }
 
     print(f"Pacific controller time to set: {now.isoformat()} ({now.tzname()})")
+    print(f"Serial port: {serial_port}")
     print("Clock registers:", " ".join(f"{v:04X}" for v in clock_values))
     if args.clock_only:
         print(f"Clock-only mode: write only when drift is greater than {args.max_drift_minutes:g} minutes")
@@ -258,7 +276,7 @@ def main() -> int:
             control_service(args.service, "stop")
             service_stopped = True
 
-        bus = ModbusRTU(args.port, args.baud, args.unit)
+        bus = ModbusRTU(serial_port, args.baud, args.unit)
         before = bus.read_holding(REG_CLOCK, 3)
         print("Controller time before:", decode_clock(before))
 

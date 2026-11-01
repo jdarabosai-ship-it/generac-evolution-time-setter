@@ -4,7 +4,7 @@ Sets a Generac Evolution controller to the current Pacific time and configures a
 
 The utility communicates over Modbus RTU using PyModbus. By default it uses:
 
-- Serial port: `/dev/USB232`
+- Serial port: auto-detects `/dev/USB232` on BeagleBone or `/dev/ttySTM1` on OL V4
 - Unit address: `0x9D`
 - Serial settings: 9600 baud, 8N1
 - Time zone: `America/Los_Angeles` (PST/PDT automatically)
