@@ -15,7 +15,7 @@ The utility communicates over Modbus RTU using PyModbus. By default it uses:
 
 - Linux
 - Python 3.7+
-- Linux system timezone data (`tzdata`; normally already installed)
+- Linux system timezone data (`tzdata`) when available; a Pacific PST/PDT fallback is built in for minimal OL V4 images
 - PyModbus
 - Permission to use the serial device and control `olmaster`
 

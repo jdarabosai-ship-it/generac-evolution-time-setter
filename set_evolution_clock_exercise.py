@@ -154,12 +154,19 @@ def current_time_in_zone(timezone: str) -> dt.datetime:
     """
     zone_path = os.path.realpath(os.path.join("/usr/share/zoneinfo", timezone))
     zone_root = os.path.realpath("/usr/share/zoneinfo") + os.sep
-    if not zone_path.startswith(zone_root) or not os.path.isfile(zone_path):
+    if zone_path.startswith(zone_root) and os.path.isfile(zone_path):
+        timezone_spec = timezone
+    elif timezone == "America/Los_Angeles":
+        # Some minimal OL V4 images omit tzdata. This POSIX rule represents
+        # current US Pacific time: DST starts the second Sunday in March and
+        # ends the first Sunday in November, both at 02:00 local time.
+        timezone_spec = "PST8PDT,M3.2.0/2,M11.1.0/2"
+    else:
         raise ValueError(f"Unknown timezone {timezone!r}. Install the system tzdata package.")
 
     previous_tz = os.environ.get("TZ")
     try:
-        os.environ["TZ"] = timezone
+        os.environ["TZ"] = timezone_spec
         time.tzset()
         return dt.datetime.now().astimezone().replace(second=0, microsecond=0)
     finally:
