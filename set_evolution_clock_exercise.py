@@ -201,13 +201,17 @@ def clock_datetime(values: list[int], timezone: dt.tzinfo) -> dt.datetime:
 
 def control_service(service: str, action: str) -> None:
     """Run systemctl without a shell and fail if the requested action fails."""
-    result = subprocess.run(
-        ["systemctl", action, service],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["systemctl", action, service],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        raise ControllerError(f"Timed out after 60 seconds while asking systemd to {action} {service!r}")
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
         raise ControllerError(f"Could not {action} service {service!r}: {detail}")
@@ -280,8 +284,11 @@ def main() -> int:
     try:
         if not args.no_service_control:
             print(f"Stopping service {args.service}...")
-            control_service(args.service, "stop")
+            # Set this before waiting for systemctl. A stop request can finish
+            # after our process is interrupted, so cleanup must always issue a
+            # corresponding start once the request has been submitted.
             service_stopped = True
+            control_service(args.service, "stop")
 
         bus = ModbusRTU(serial_port, args.baud, args.unit)
         before = bus.read_holding(REG_CLOCK, 3)
