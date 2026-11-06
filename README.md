@@ -9,6 +9,10 @@ registers. The H-Panel utility intentionally leaves the exercise schedule
 unchanged because the known H-Panel Modbus implementation does not support
 that write.
 
+`inspect_hpanel_exercise.py` is a read-only research probe derived from the
+GenLink 4.0.1 `_Exercise_Control_Struct`. It reads and decodes the H-Panel
+schedule without modifying it.
+
 The utility communicates over Modbus RTU using PyModbus. By default it uses:
 
 - Serial port: auto-detects `/dev/USB232` on BeagleBone or `/dev/ttySTM1` on OL V4
