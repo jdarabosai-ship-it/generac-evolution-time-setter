@@ -2,6 +2,13 @@
 
 Sets a Generac Evolution controller to the current Pacific time and configures a weekly Tuesday 9:05 AM exercise cycle lasting 25 minutes.
 
+The repository also includes `set_hpanel_clock.py`, a separate clock-only
+utility for Generac H-100/G-Panel industrial controllers. Do not use the
+Evolution setter on an H-Panel because its clock uses different Modbus
+registers. The H-Panel utility intentionally leaves the exercise schedule
+unchanged because the known H-Panel Modbus implementation does not support
+that write.
+
 The utility communicates over Modbus RTU using PyModbus. By default it uses:
 
 - Serial port: auto-detects `/dev/USB232` on BeagleBone or `/dev/ttySTM1` on OL V4
