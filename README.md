@@ -2,16 +2,23 @@
 
 Sets a Generac Evolution controller to the current Pacific time and configures a weekly Tuesday 9:05 AM exercise cycle lasting 25 minutes.
 
-The repository also includes `set_hpanel_clock.py`, a separate clock-only
-utility for Generac H-100/G-Panel industrial controllers. Do not use the
-Evolution setter on an H-Panel because its clock uses different Modbus
-registers. The H-Panel utility intentionally leaves the exercise schedule
-unchanged because the known H-Panel Modbus implementation does not support
-that write.
+The repository also includes separate clock and exercise utilities for the
+Generac H-100/G-Panel industrial controller. Do not use the Evolution setter
+on an H-Panel because its clock and schedule use different Modbus operations.
 
 `inspect_hpanel_exercise.py` is a read-only research probe derived from the
 GenLink 4.0.1 `_Exercise_Control_Struct`. It reads and decodes the H-Panel
 schedule without modifying it.
+
+`set_hpanel_exercise.py` reads that structure, preserves unknown controller
+flag bits, writes a weekly schedule using Modbus Write File Record, and verifies
+the result. It defaults to H-Panel unit `0x64` and Tuesday at 09:05 for 18
+minutes. Preview or apply it with:
+
+```bash
+sudo python3 set_hpanel_exercise.py
+sudo python3 set_hpanel_exercise.py --apply
+```
 
 The utility communicates over Modbus RTU using PyModbus. By default it uses:
 

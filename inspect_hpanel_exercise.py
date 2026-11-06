@@ -21,7 +21,7 @@ except ImportError as exc:
     raise SystemExit(2)
 
 
-UNIT = 0x9D
+UNIT = 0x64
 FILE_NUMBER = 1
 RECORD_NUMBER = 0x00EB
 RECORD_WORDS = 3

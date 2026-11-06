@@ -5,8 +5,7 @@ The controller clock is set to current America/Los_Angeles time by default.
 The program is dry-run by default; pass --apply to perform the Modbus write.
 Requires Python 3.7+ and pymodbus 2.x or 3.x.
 
-Exercise scheduling is intentionally not included. GenMon's H-Panel driver
-documents H-Panel exercise-time writes as unsupported.
+Exercise scheduling is handled separately by set_hpanel_exercise.py.
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ except ImportError:
 from pymodbus.exceptions import ModbusException
 
 
-UNIT = 0x9D
+UNIT = 0x64
 REG_CLOCK = 0x00E0
 SERIAL_PORT_CANDIDATES = ("/dev/USB232", "/dev/ttySTM1", "/dev/ttyUSB0", "/dev/serial0")
 
@@ -224,7 +223,7 @@ def main() -> int:
     print(f"Pacific H-Panel time to set: {now.isoformat()} ({now.tzname()})")
     print(f"Serial port: {serial_port}")
     print("Clock registers 00E0..00E3:", " ".join(f"{value:04X}" for value in requested_clock))
-    print("Exercise schedule: not modified (H-Panel Modbus write is undocumented/unsupported)")
+    print("Exercise schedule: not modified by this clock-only utility")
 
     if not args.apply:
         print("Dry run only. Re-run with --apply to write the clock.")
