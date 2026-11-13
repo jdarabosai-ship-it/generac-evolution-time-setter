@@ -3,7 +3,7 @@
 
 Defaults:
   * Controller clock: current America/Los_Angeles time (PST/PDT as applicable)
-  * Exercise: Tuesday at 09:05, weekly, 25 minutes
+  * Exercise: Monday at 09:00, weekly, 30 minutes
   * Modbus RTU: unit 0x9D, 9600 8N1
 
 The program is dry-run by default. Pass --apply to perform writes.
@@ -231,9 +231,10 @@ def main() -> int:
     parser.add_argument("--clock-only", action="store_true", help="Sync only the clock; do not alter the exercise schedule")
     parser.add_argument("--max-drift-minutes", type=float, default=5.0, help="With --clock-only, write only when drift is greater than this value; default: 5")
     parser.add_argument("--quiet-test", action="store_true", help="Enable quiet-test mode; default is off")
+    parser.add_argument("--exercise-day", type=int, choices=range(7), default=1, metavar="0-6", help="Exercise weekday: Sunday=0 through Saturday=6; default: Monday (1)")
     parser.add_argument("--exercise-hour", type=int, choices=range(24), default=9, metavar="0-23")
-    parser.add_argument("--exercise-minute", type=int, choices=range(60), default=5, metavar="0-59")
-    parser.add_argument("--duration", type=int, choices=range(1, 256), default=25, metavar="1-255")
+    parser.add_argument("--exercise-minute", type=int, choices=range(60), default=0, metavar="0-59")
+    parser.add_argument("--duration", type=int, choices=range(1, 256), default=30, metavar="1-255")
     parser.add_argument("--skip-duration", action="store_true", help="Do not write 0x023E if this model rejects duration")
     parser.add_argument("--service", default="olmaster", help="Service to stop during writes; default: olmaster")
     parser.add_argument("--no-service-control", action="store_true", help="Do not stop or start a service")
@@ -254,9 +255,10 @@ def main() -> int:
         return 2
     # The known Evolution write path uses zero for the weekday byte and lets the controller derive it.
     clock_values = [packed(now.hour, now.minute), packed(now.month, now.day), packed(0, now.year - 2000)]
+    weekday_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     exercise_values = {
         REG_EX_FREQUENCY: 0x0000,          # weekly
-        REG_EX_DAY: 0x0002,                # Sunday=0, Monday=1, Tuesday=2
+        REG_EX_DAY: args.exercise_day,      # Sunday=0 through Saturday=6
         REG_EX_TIME: packed(args.exercise_hour, args.exercise_minute),
         REG_EX_QUIET: int(args.quiet_test),
         REG_EX_DURATION: args.duration,
@@ -269,7 +271,8 @@ def main() -> int:
         print(f"Clock-only mode: write only when drift is greater than {args.max_drift_minutes:g} minutes")
     else:
         print(
-            f"Exercise to set: weekly, Tuesday {args.exercise_hour:02d}:{args.exercise_minute:02d}, "
+            f"Exercise to set: weekly, {weekday_names[args.exercise_day]} "
+            f"{args.exercise_hour:02d}:{args.exercise_minute:02d}, "
             f"{args.duration} minutes, " + ("quiet test" if args.quiet_test else "normal exercise")
         )
         print("Exercise registers:", " ".join(f"{a:04X}={v:04X}" for a, v in exercise_values.items()))

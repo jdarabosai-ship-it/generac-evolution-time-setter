@@ -1,6 +1,6 @@
 # Generac Evolution Time and Exercise Setter
 
-Sets a Generac Evolution controller to the current Pacific time and configures a weekly Tuesday 9:05 AM exercise cycle lasting 25 minutes.
+Sets a Generac Evolution controller to the current Pacific time and configures a weekly Monday 9:00 AM exercise cycle lasting 30 minutes.
 
 The repository also includes separate clock and exercise utilities for the
 Generac H-100/G-Panel industrial controller. Do not use the Evolution setter
@@ -26,7 +26,7 @@ The utility communicates over Modbus RTU using PyModbus. By default it uses:
 - Unit address: `0x9D`
 - Serial settings: 9600 baud, 8N1
 - Time zone: `America/Los_Angeles` (PST/PDT automatically)
-- Exercise: Tuesday at 9:05 AM for 25 minutes
+- Exercise: Monday at 9:00 AM for 30 minutes
 - Service control: stops `olmaster` before writing and starts it again afterward
 
 ## Requirements
@@ -55,7 +55,7 @@ Apply and verify the settings:
 sudo python3 set_evolution_clock_exercise.py --apply
 ```
 
-Use `--help` for serial-port, unit-address, quiet-test, duration, and service-control options.
+Use `--help` for serial-port, unit-address, exercise day/time, quiet-test, duration, and service-control options.
 
 ## Daily clock synchronization
 
