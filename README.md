@@ -21,6 +21,11 @@ sudo python3 set_hpanel_exercise.py
 sudo python3 set_hpanel_exercise.py --apply
 ```
 
+On OL V4 hardware the setter reads the Modbus selector GPIO from OLmaster's
+`io.config`, holds it low for RS-232 while using `/dev/ttySTM1`, then releases
+it before restarting `olmaster`. BeagleBone `/dev/USB232` operation is
+unchanged.
+
 The utility communicates over Modbus RTU using PyModbus. By default it uses:
 
 - Serial port: auto-detects `/dev/USB232` on BeagleBone or `/dev/ttySTM1` on OL V4

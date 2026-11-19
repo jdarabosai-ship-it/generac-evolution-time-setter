@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import os
 import signal
 import struct
@@ -31,6 +32,8 @@ RECORD_WORDS = 3
 REG_CLOCK = 0x00E0
 SERIAL_PORT_CANDIDATES = ("/dev/USB232", "/dev/ttySTM1", "/dev/ttyUSB0", "/dev/serial0")
 DAY_NAMES = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+OLMASTER_ROOT = "/lib/olmaster"
+OLMASTER_IO_CONFIG = "/lib/olmaster/config_files/io.config"
 
 
 class ControllerError(RuntimeError):
@@ -61,6 +64,31 @@ def control_service(service: str, action: str) -> None:
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
         raise ControllerError(f"Could not {action} service {service!r}: {detail}")
+
+
+def select_v4_rs232(port_name: str):
+    """Reserve the OL V4 UART selector GPIO low while ttySTM1 is in use."""
+    if port_name != "/dev/ttySTM1":
+        return None
+    try:
+        with open(OLMASTER_IO_CONFIG) as handle:
+            config = json.load(handle)
+        selector = next(
+            item for item in config.get("gpio_list", [])
+            if item.get("setup", {}).get("ismodbuscommpin")
+        )
+        pin = int(selector["setup"]["pinnumber"])
+        if OLMASTER_ROOT not in sys.path:
+            sys.path.insert(0, OLMASTER_ROOT)
+        from libraries.stm32mp1gpio import Stm32mp1Gpio
+
+        gpio = Stm32mp1Gpio()
+        gpio.setup(channel=pin, direction=gpio.OUT, initial=gpio.LOW)
+        time.sleep(0.02)
+        print(f"V4 RS-232 selector: GPIO pin {pin} set low")
+        return gpio
+    except Exception as exc:
+        raise ControllerError(f"Could not select V4 RS-232 mode: {exc}")
 
 
 def modbus_crc(data: bytes) -> int:
@@ -262,6 +290,7 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, handle_termination)
     service_stopped = False
+    v4_gpio = None
     exit_code = 0
     try:
         port_name = resolve_serial_port(args.port)
@@ -279,6 +308,7 @@ def main() -> int:
             print(f"Stopping service {args.service}...")
             service_stopped = True
             control_service(args.service, "stop")
+        v4_gpio = select_v4_rs232(port_name)
         with serial.Serial(
             port=port_name, baudrate=args.baud, bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=2.0,
@@ -315,6 +345,13 @@ def main() -> int:
         print("Interrupted; restoring service state...", file=sys.stderr)
         exit_code = 130
     finally:
+        if v4_gpio is not None:
+            try:
+                v4_gpio.cleanup()
+                print("V4 RS-232 selector released.")
+            except Exception as exc:
+                print(f"WARNING: could not release V4 GPIO selector: {exc}", file=sys.stderr)
+                exit_code = exit_code or 1
         if service_stopped:
             print(f"Starting service {args.service}...")
             try:
