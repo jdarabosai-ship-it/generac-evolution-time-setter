@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safely set and verify a Generac H-100 exercise schedule over Modbus RTU.
+"""Safely set and verify a Generac H-100 clock and exercise schedule.
 
 The schedule is stored in GenLink's six-byte _Exercise_Control_Struct at
 Modbus file 1, record 0x00EB. The program reads the current structure first,
@@ -9,11 +9,13 @@ preserves unknown flag bits, and is dry-run unless --apply is supplied.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import os
 import signal
 import struct
 import subprocess
 import sys
+import time
 
 try:
     import serial
@@ -26,6 +28,7 @@ UNIT = 0x64
 FILE_NUMBER = 1
 RECORD_NUMBER = 0x00EB
 RECORD_WORDS = 3
+REG_CLOCK = 0x00E0
 SERIAL_PORT_CANDIDATES = ("/dev/USB232", "/dev/ttySTM1", "/dev/ttyUSB0", "/dev/serial0")
 DAY_NAMES = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
@@ -106,6 +109,98 @@ def transact(port: serial.Serial, request: bytes, expected_function: int) -> byt
     return response
 
 
+def transact_fixed(
+    port: serial.Serial, request: bytes, expected_function: int, expected_length: int
+) -> bytes:
+    port.reset_input_buffer()
+    port.reset_output_buffer()
+    port.write(add_crc(request))
+    port.flush()
+    prefix = read_exact(port, 2)
+    if prefix[0] != request[0]:
+        raise ControllerError(f"Response came from unexpected unit 0x{prefix[0]:02X}")
+    if prefix[1] == (expected_function | 0x80):
+        response = prefix + read_exact(port, 3)
+        if modbus_crc(response[:-2]) != struct.unpack("<H", response[-2:])[0]:
+            raise ControllerError("Invalid Modbus CRC in exception response")
+        raise ControllerError(f"Controller returned Modbus exception 0x{response[2]:02X}")
+    if prefix[1] != expected_function:
+        raise ControllerError(f"Unexpected Modbus function 0x{prefix[1]:02X}")
+    response = prefix + read_exact(port, expected_length - 2)
+    if modbus_crc(response[:-2]) != struct.unpack("<H", response[-2:])[0]:
+        raise ControllerError("Invalid Modbus CRC in response")
+    return response
+
+
+def read_clock(port: serial.Serial, unit: int) -> list[int]:
+    request = bytes((unit, 0x03)) + struct.pack(">HH", REG_CLOCK, 4)
+    response = transact_fixed(port, request, 0x03, 13)
+    if response[:3] != bytes((unit, 0x03, 0x08)):
+        raise ControllerError("Unexpected clock read response format")
+    return list(struct.unpack(">HHHH", response[3:11]))
+
+
+def write_clock(port: serial.Serial, unit: int, values: list[int]) -> None:
+    if len(values) != 4:
+        raise ValueError("H-Panel clock requires exactly four registers")
+    request = (
+        bytes((unit, 0x10))
+        + struct.pack(">HHB", REG_CLOCK, 4, 8)
+        + struct.pack(">HHHH", *values)
+    )
+    response = transact_fixed(port, request, 0x10, 8)
+    expected = bytes((unit, 0x10)) + struct.pack(">HH", REG_CLOCK, 4)
+    if response[:-2] != expected:
+        raise ControllerError("Clock write response did not confirm the requested registers")
+
+
+def current_time_in_zone(timezone: str) -> dt.datetime:
+    zone_path = os.path.realpath(os.path.join("/usr/share/zoneinfo", timezone))
+    zone_root = os.path.realpath("/usr/share/zoneinfo") + os.sep
+    if zone_path.startswith(zone_root) and os.path.isfile(zone_path):
+        timezone_spec = timezone
+    elif timezone == "America/Los_Angeles":
+        timezone_spec = "PST8PDT,M3.2.0/2,M11.1.0/2"
+    else:
+        raise ValueError(f"Unknown timezone {timezone!r}. Install the system tzdata package.")
+    previous_tz = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = timezone_spec
+        time.tzset()
+        return dt.datetime.now().astimezone().replace(microsecond=0)
+    finally:
+        if previous_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous_tz
+        time.tzset()
+
+
+def hpanel_weekday(value: dt.datetime) -> int:
+    return 1 if value.weekday() == 6 else value.weekday() + 2
+
+
+def encode_clock(value: dt.datetime) -> list[int]:
+    return [
+        (value.hour << 8) | value.minute,
+        (value.second << 8) | hpanel_weekday(value),
+        (value.month << 8) | value.day,
+        ((value.year - 2000) << 8),
+    ]
+
+
+def decode_clock(values: list[int], timezone: dt.tzinfo) -> dt.datetime:
+    if len(values) != 4:
+        raise ControllerError("H-Panel clock read did not return four registers")
+    hour, minute = values[0] >> 8, values[0] & 0xFF
+    second, weekday = values[1] >> 8, values[1] & 0xFF
+    month, day = values[2] >> 8, values[2] & 0xFF
+    year, unused = 2000 + (values[3] >> 8), values[3] & 0xFF
+    if not 1 <= weekday <= 7 or unused != 0:
+        raise ControllerError("H-Panel clock returned an invalid weekday or reserved byte")
+    return dt.datetime(year, month, day, hour, minute, second, tzinfo=timezone)
+
+
 def read_exercise(port: serial.Serial, unit: int) -> bytes:
     request = bytes((unit, 0x14, 0x07, 0x06)) + struct.pack(
         ">HHH", FILE_NUMBER, RECORD_NUMBER, RECORD_WORDS
@@ -158,7 +253,8 @@ def main() -> int:
     parser.add_argument("--day", type=int, choices=range(7), default=2, metavar="0..6")
     parser.add_argument("--hour", type=int, choices=range(24), default=9)
     parser.add_argument("--minute", type=int, choices=range(60), default=5)
-    parser.add_argument("--duration", type=int, choices=range(1, 256), default=18)
+    parser.add_argument("--duration", type=int, choices=range(1, 256), default=25)
+    parser.add_argument("--timezone", default="America/Los_Angeles")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--service", default="olmaster")
     parser.add_argument("--no-service-control", action="store_true")
@@ -169,8 +265,12 @@ def main() -> int:
     exit_code = 0
     try:
         port_name = resolve_serial_port(args.port)
+        now = current_time_in_zone(args.timezone)
+        desired_clock = encode_clock(now)
         print("Serial port:", port_name)
         print(f"Modbus unit: 0x{args.unit:02X}")
+        print(f"Pacific H-Panel time target: {now.isoformat()} ({now.tzname()})")
+        print("Clock registers 00E0..00E3:", " ".join(f"{value:04X}" for value in desired_clock))
         print(
             f"Exercise target: {DAY_NAMES[args.day]} {args.hour:02d}:{args.minute:02d}, "
             f"{args.duration} minutes, normal exercise, no transfer"
@@ -183,13 +283,23 @@ def main() -> int:
             port=port_name, baudrate=args.baud, bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=2.0,
         ) as port:
+            current_clock_values = read_clock(port, args.unit)
+            current_clock = decode_clock(current_clock_values, now.tzinfo)
+            print("Current controller time:", current_clock.strftime("%Y-%m-%d %H:%M:%S (%A)"))
             current = read_exercise(port, args.unit)
             describe("Current", current)
             desired = requested_schedule(current, args.day, args.hour, args.minute, args.duration)
             describe("Requested", desired)
             if not args.apply:
-                print("Dry run only. Re-run with --apply to write and verify the schedule.")
+                print("Dry run only. Re-run with --apply to write and verify clock and schedule.")
             else:
+                write_clock(port, args.unit, desired_clock)
+                verified_clock_values = read_clock(port, args.unit)
+                verified_clock = decode_clock(verified_clock_values, now.tzinfo)
+                print("Verified controller time:", verified_clock.strftime("%Y-%m-%d %H:%M:%S (%A)"))
+                clock_drift = abs((verified_clock - now).total_seconds())
+                if clock_drift > 60 or (verified_clock_values[1] & 0xFF) != hpanel_weekday(now):
+                    raise ControllerError("Clock verification failed")
                 write_exercise(port, args.unit, desired)
                 verified = read_exercise(port, args.unit)
                 describe("Verified", verified)
@@ -197,7 +307,7 @@ def main() -> int:
                     raise ControllerError(
                         "Exercise verification failed: readback did not match requested bytes"
                     )
-                print("H-Panel exercise schedule verified successfully.")
+                print("H-Panel clock and exercise schedule verified successfully.")
     except (ControllerError, OSError, ValueError, serial.SerialException) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         exit_code = 1

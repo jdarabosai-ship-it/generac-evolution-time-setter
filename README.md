@@ -10,10 +10,11 @@ on an H-Panel because its clock and schedule use different Modbus operations.
 GenLink 4.0.1 `_Exercise_Control_Struct`. It reads and decodes the H-Panel
 schedule without modifying it.
 
-`set_hpanel_exercise.py` reads that structure, preserves unknown controller
-flag bits, writes a weekly schedule using Modbus Write File Record, and verifies
-the result. It defaults to H-Panel unit `0x64` and Tuesday at 09:05 for 18
-minutes. Preview or apply it with:
+`set_hpanel_exercise.py` sets the H-Panel clock to current Pacific local time,
+reads the exercise structure, preserves unknown controller flag bits, writes a
+weekly schedule using Modbus Write File Record, and verifies both results. It
+defaults to H-Panel unit `0x64` and Tuesday at 09:05 for 25 minutes. Preview or
+apply it with:
 
 ```bash
 sudo python3 set_hpanel_exercise.py
