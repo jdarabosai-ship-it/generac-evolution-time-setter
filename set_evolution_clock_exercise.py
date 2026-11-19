@@ -3,7 +3,7 @@
 
 Defaults:
   * Controller clock: current America/Los_Angeles time (PST/PDT as applicable)
-  * Exercise: Monday at 09:05, weekly, 15 minutes
+  * Exercise: Tuesday at 09:05, weekly, 25 minutes
   * Modbus RTU: unit 0x9D, 9600 8N1
 
 The program is dry-run by default. Pass --apply to perform writes.
@@ -231,10 +231,10 @@ def main() -> int:
     parser.add_argument("--clock-only", action="store_true", help="Sync only the clock; do not alter the exercise schedule")
     parser.add_argument("--max-drift-minutes", type=float, default=5.0, help="With --clock-only, write only when drift is greater than this value; default: 5")
     parser.add_argument("--quiet-test", action="store_true", help="Enable quiet-test mode; default is off")
-    parser.add_argument("--exercise-day", type=int, choices=range(7), default=1, metavar="0-6", help="Exercise weekday: Sunday=0 through Saturday=6; default: Monday (1)")
+    parser.add_argument("--exercise-day", type=int, choices=range(7), default=2, metavar="0-6", help="Exercise weekday: Sunday=0 through Saturday=6; default: Tuesday (2)")
     parser.add_argument("--exercise-hour", type=int, choices=range(24), default=9, metavar="0-23")
     parser.add_argument("--exercise-minute", type=int, choices=range(60), default=5, metavar="0-59")
-    parser.add_argument("--duration", type=int, choices=range(1, 256), default=15, metavar="1-255")
+    parser.add_argument("--duration", type=int, choices=range(1, 256), default=25, metavar="1-255")
     parser.add_argument("--skip-duration", action="store_true", help="Do not write 0x023E if this model rejects duration")
     parser.add_argument("--service", default="olmaster", help="Service to stop during writes; default: olmaster")
     parser.add_argument("--no-service-control", action="store_true", help="Do not stop or start a service")
