@@ -13,7 +13,7 @@ schedule without modifying it.
 `set_hpanel_exercise.py` sets the H-Panel clock to current Pacific local time,
 reads the exercise structure, preserves unknown controller flag bits, writes a
 weekly schedule using Modbus Write File Record, and verifies both results. It
-defaults to H-Panel unit `0x64` and Tuesday at 09:05 for 25 minutes. Preview or
+defaults to H-Panel unit `0x64` and Monday at 09:00 for 20 minutes. Preview or
 apply it with:
 
 ```bash
